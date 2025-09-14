@@ -73,20 +73,27 @@
     <div class="container bg-card rounded-xl shadow-lg p-6 w-full md:w-2/3 lg:w-1/2">
         <div class="text-center mb-8">
             <h1 class="text-3xl font-bold text-white">Voice Bridge</h1>
-            <p class="text-gray-400 mt-2">Translates text</p>
+            <p class="text-gray-400 mt-2">Translates text and speaks it aloud.</p>
         </div>
 
         <section id="translatorPage" class="page active space-y-4">
-            <div>
-                <label for="inputText" class="block text-sm font-medium text-gray-300">Enter Text</label>
-                <textarea id="inputText" rows="6" class="mt-1 block w-full rounded-md border-gray-600 bg-gray-700 text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition duration-150 ease-in-out p-3 border"></textarea>
-            </div>
             <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
+                <div class="flex-grow w-full">
+                    <label for="sourceLanguage" class="block text-sm font-medium text-gray-300">Translate From</label>
+                    <select id="sourceLanguage" class="mt-1 block w-full rounded-md border-gray-600 bg-gray-700 text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition duration-150 ease-in-out p-3 border">
+                    </select>
+                </div>
                 <div class="flex-grow w-full">
                     <label for="targetLanguage" class="block text-sm font-medium text-gray-300">Translate To</label>
                     <select id="targetLanguage" class="mt-1 block w-full rounded-md border-gray-600 bg-gray-700 text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition duration-150 ease-in-out p-3 border">
                     </select>
                 </div>
+            </div>
+            <div>
+                <label for="inputText" class="block text-sm font-medium text-gray-300">Enter Text</label>
+                <textarea id="inputText" rows="6" class="mt-1 block w-full rounded-md border-gray-600 bg-gray-700 text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition duration-150 ease-in-out p-3 border"></textarea>
+            </div>
+            <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
                 <button id="translateButton" class="w-full md:w-auto mt-4 md:mt-0 px-6 py-3 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out flex justify-center items-center space-x-2">
                     <span id="buttonText">Translate</span>
                     <div id="loadingSpinner" class="hidden loading-spinner"></div>
@@ -143,6 +150,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         const inputText = document.getElementById('inputText');
         const outputText = document.getElementById('outputText');
+        const sourceLanguage = document.getElementById('sourceLanguage');
         const targetLanguage = document.getElementById('targetLanguage');
         const translateButton = document.getElementById('translateButton');
         const loadingSpinner = document.getElementById('loadingSpinner');
@@ -201,6 +209,20 @@
             'Vietnamese': 'vi-VN',
             'Thai': 'th-TH',
         };
+        
+        let availableVoices = [];
+
+        // Function to populate available voices and set them up
+        const populateVoices = () => {
+            availableVoices = window.speechSynthesis.getVoices();
+        };
+
+        // Event listener for when voices are loaded
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = populateVoices;
+            populateVoices(); // Call it immediately in case voices are already loaded
+        }
+
 
         const showPage = (pageId) => {
             document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
@@ -227,11 +249,12 @@
             buttonText.classList.toggle('hidden', isTranslating);
         };
 
-        const addTranslationToHistory = (original, translated, lang, properNouns) => {
+        const addTranslationToHistory = (original, translated, sourceLang, targetLang, properNouns) => {
             translationHistory.unshift({
                 original,
                 translated,
-                lang,
+                sourceLang,
+                targetLang,
                 properNouns,
                 timestamp: new Date().toLocaleTimeString()
             });
@@ -260,7 +283,7 @@
                         properNounHtml = `<div class="mt-2 text-sm"><strong>Details:</strong><ul class="list-disc list-inside">${nounList}</ul></div>`;
                     }
                     historyItem.innerHTML = `
-                        <div class="text-xs text-gray-500">${item.timestamp} - Translated to ${item.lang}</div>
+                        <div class="text-xs text-gray-500">${item.timestamp} - ${item.sourceLang} to ${item.targetLang}</div>
                         <p class="mt-2 text-white"><strong>Original:</strong> ${item.original}</p>
                         <p class="mt-1 text-gray-300"><strong>Translated:</strong> ${item.translated}</p>
                         ${properNounHtml}
@@ -270,7 +293,7 @@
             }
         };
 
-        const translateText = async (text, targetLang) => {
+        const translateText = async (text, sourceLang, targetLang) => {
             if (!text) {
                 showMessage("Please enter text to translate.", true);
                 return;
@@ -286,8 +309,7 @@
             outputText.value = '';
 
             try {
-                // Modified prompt to request translation and proper noun details
-                const prompt = `Translate the following text into ${targetLang}. After the translation, provide a list of any proper nouns (people, places, etc.) found in the original text, with a one-sentence description for each.
+                const prompt = `Translate the following text from ${sourceLang} to ${targetLang}. After the translation, provide a list of any proper nouns (people, places, etc.) found in the original text, with a one-sentence description for each.
                 
                 Format the response strictly as follows:
                 Translation: [Your translated text]
@@ -313,7 +335,13 @@
                 }
 
                 const data = await response.json();
-                const fullText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                // Add more explicit checks for the data structure
+                if (!data || !data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0] || !data.candidates[0].content.parts[0].text) {
+                    throw new Error('Unexpected API response format. Missing required data.');
+                }
+
+                const fullText = data.candidates[0].content.parts[0].text;
 
                 if (fullText) {
                     const lines = fullText.split('\n');
@@ -342,7 +370,7 @@
                     }
 
                     outputText.value = translatedText;
-                    addTranslationToHistory(text, translatedText, targetLang, properNouns);
+                    addTranslationToHistory(text, translatedText, sourceLang, targetLang, properNouns);
                     
                     // Display proper noun info if available
                     if (properNouns.length > 0) {
@@ -370,13 +398,27 @@
         const speakTranslatedText = () => {
             if ('speechSynthesis' in window) {
                 const text = outputText.value;
-                if (text) {
-                    window.speechSynthesis.cancel();
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    const selectedLanguage = targetLanguage.value;
-                    utterance.lang = langCodeMap[selectedLanguage] || 'en-US';
-                    window.speechSynthesis.speak(utterance);
+                if (!text) {
+                    showMessage("There is no text to speak.", true);
+                    return;
                 }
+                
+                const selectedLanguage = targetLanguage.value;
+                const langCode = langCodeMap[selectedLanguage];
+                
+                // Find a voice that supports the selected language
+                const voice = availableVoices.find(voice => voice.lang.startsWith(langCode));
+
+                if (!voice) {
+                    showMessage(`No voice available for ${selectedLanguage} on your system.`, true);
+                    return;
+                }
+
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = langCode;
+                utterance.voice = voice;
+                window.speechSynthesis.speak(utterance);
             } else {
                 showMessage("Text-to-speech is not supported in this browser.", true);
             }
@@ -401,13 +443,15 @@
             const option = document.createElement('option');
             option.value = lang.name;
             option.textContent = lang.name;
-            targetLanguage.appendChild(option);
+            sourceLanguage.appendChild(option.cloneNode(true)); // Add to source
+            targetLanguage.appendChild(option); // Add to target
         });
 
+        sourceLanguage.value = 'English';
         targetLanguage.value = 'Spanish';
         
         translateButton.addEventListener('click', () => {
-            translateText(inputText.value, targetLanguage.value);
+            translateText(inputText.value, sourceLanguage.value, targetLanguage.value);
         });
         
         speakButton.addEventListener('click', speakTranslatedText);

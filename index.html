@@ -405,9 +405,11 @@
                 
                 const selectedLanguage = targetLanguage.value;
                 const langCode = langCodeMap[selectedLanguage];
+                // Extract the base language code (e.g., 'en' from 'en-US')
+                const baseLangCode = langCode.substring(0, 2);
                 
-                // Find a voice that supports the selected language
-                const voice = availableVoices.find(voice => voice.lang.startsWith(langCode));
+                // Find a voice that supports the selected language's base code
+                const voice = availableVoices.find(voice => voice.lang.startsWith(baseLangCode));
 
                 if (!voice) {
                     showMessage(`No voice available for ${selectedLanguage} on your system.`, true);
